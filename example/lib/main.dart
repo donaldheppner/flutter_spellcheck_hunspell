@@ -1,7 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'dart:async';
-
-import 'package:flutter_spellcheck_hunspell/flutter_spellcheck_hunspell.dart' as flutter_spellcheck_hunspell;
+import 'package:flutter/services.dart';
+import 'package:flutter_spellcheck_hunspell/hunspell_spell_check_service.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,57 +16,72 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
+  final HunspellSpellCheckService _spellCheckService = HunspellSpellCheckService();
+  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    sumResult = flutter_spellcheck_hunspell.sum(1, 2);
-    sumAsyncResult = flutter_spellcheck_hunspell.sumAsync(3, 4);
+    _initHunspell();
+  }
+
+  Future<void> _initHunspell() async {
+    // Copy assets to extensive storage because Hunspell needs file paths
+    final docsDir = await getApplicationSupportDirectory();
+    final affDetail = await rootBundle.load('assets/en_US.aff');
+    final dicDetail = await rootBundle.load('assets/en_US.dic');
+
+    final affPath = '${docsDir.path}/en_US.aff';
+    final dicPath = '${docsDir.path}/en_US.dic';
+
+    await File(affPath).writeAsBytes(affDetail.buffer.asUint8List());
+    await File(dicPath).writeAsBytes(dicDetail.buffer.asUint8List());
+
+    await _spellCheckService.init(affPath, dicPath);
+
+    if (mounted) {
+      setState(() {
+        _ready = true;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _spellCheckService.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(fontSize: 25);
-    const spacerSmall = SizedBox(height: 10);
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Native Packages'),
-        ),
-        body: SingleChildScrollView(
-          child: Container(
-            padding: const .all(10),
-            child: Column(
-              children: [
-                const Text(
-                  'This calls a native function through FFI that is shipped as source in the package. '
-                  'The native code is built as part of the Flutter Runner build.',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
-                Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
-                FutureBuilder<int>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
-                    final displayValue =
-                        (value.hasData) ? value.data : 'loading';
-                    return Text(
-                      'await sumAsync(3, 4) = $displayValue',
-                      style: textStyle,
-                      textAlign: .center,
-                    );
-                  },
-                ),
-              ],
-            ),
+        appBar: AppBar(title: const Text('Hunspell Spell Check')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: _ready
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Type something (try "speling"):'),
+                      SizedBox(height: 20),
+                      TextField(
+                        maxLines: null,
+                        spellCheckConfiguration: SpellCheckConfiguration(
+                          spellCheckService: _spellCheckService,
+                          misspelledTextStyle: const TextStyle(
+                            color: Colors.red, // Highlight misspelled words in red
+                            decoration: TextDecoration.underline,
+                            decorationColor: Colors.red,
+                            decorationStyle: TextDecorationStyle.wavy,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : const CircularProgressIndicator(),
           ),
         ),
       ),

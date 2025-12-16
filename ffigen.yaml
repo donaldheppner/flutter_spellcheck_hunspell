@@ -1,5 +1,4 @@
-# Run with `dart run ffigen --config ffigen.yaml`.
-name: FlutterSpellcheckHunspellBindings
+name: HunspellBindings
 description: |
   Bindings for `src/flutter_spellcheck_hunspell.h`.
 
@@ -17,3 +16,4 @@ preamble: |
 comments:
   style: any
   length: full
+

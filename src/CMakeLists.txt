@@ -6,8 +6,10 @@ cmake_minimum_required(VERSION 3.10)
 project(flutter_spellcheck_hunspell_library VERSION 0.0.1 LANGUAGES C)
 
 add_library(flutter_spellcheck_hunspell SHARED
-  "flutter_spellcheck_hunspell.c"
+  "flutter_spellcheck_hunspell.cpp"
 )
+
+target_link_libraries(flutter_spellcheck_hunspell PRIVATE libhunspell)
 
 set_target_properties(flutter_spellcheck_hunspell PROPERTIES
   PUBLIC_HEADER flutter_spellcheck_hunspell.h

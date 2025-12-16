@@ -8,9 +8,38 @@ cmake_minimum_required(VERSION 3.14)
 set(PROJECT_NAME "flutter_spellcheck_hunspell")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
+include(FetchContent)
+
+FetchContent_Declare(
+  hunspell
+  GIT_REPOSITORY https://github.com/hunspell/hunspell.git
+  GIT_TAG        v1.7.2
+)
+
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
+set(HUNSPELL_BUILD_TOOLS OFF CACHE BOOL "Build tools" FORCE)
+
+FetchContent_MakeAvailable(hunspell)
+
+message(STATUS "Hunspell Source: ${hunspell_SOURCE_DIR}")
+if(TARGET hunspell)
+  message(STATUS "Target hunspell EXISTS")
+else()
+  message(STATUS "Target hunspell MISSING")
+endif()
+
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
+
+# Add include directory for Hunspell headers (so src/flutter_spellcheck_hunspell.cpp can find hunspell.hxx)
+# hunspell_SOURCE_DIR is set by FetchContent_MakeAvailable
+target_include_directories(flutter_spellcheck_hunspell PRIVATE "${hunspell_SOURCE_DIR}/src")
+
+# Manual link directory fallback
+link_directories("${hunspell_BINARY_DIR}/src/hunspell")
+link_directories("${hunspell_BINARY_DIR}/src/hunspell/Debug")
+link_directories("${hunspell_BINARY_DIR}/src/hunspell/Release")
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
