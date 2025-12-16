@@ -15,16 +15,18 @@
 #define FFI_PLUGIN_EXPORT
 #endif
 
-// A very short-lived native function.
-//
-// For very short-lived functions, it is fine to call them on the main isolate.
-// They will block the Dart execution while running the native function, so
-// only do this for native functions which are guaranteed to be short-lived.
-FFI_PLUGIN_EXPORT int sum(int a, int b);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// A longer lived native function, which occupies the thread calling it.
-//
-// Do not call these kind of native functions in the main isolate. They will
-// block Dart execution. This will cause dropped frames in Flutter applications.
-// Instead, call these native functions on a separate isolate.
-FFI_PLUGIN_EXPORT int sum_long_running(int a, int b);
+typedef struct HunspellHandle HunspellHandle;
+
+FFI_PLUGIN_EXPORT HunspellHandle* FlutterHunspell_create(const char* aff_path, const char* dic_path);
+FFI_PLUGIN_EXPORT void FlutterHunspell_destroy(HunspellHandle* handle);
+FFI_PLUGIN_EXPORT int FlutterHunspell_spell(HunspellHandle* handle, const char* word);
+FFI_PLUGIN_EXPORT char** FlutterHunspell_suggest(HunspellHandle* handle, const char* word, int* count);
+FFI_PLUGIN_EXPORT void FlutterHunspell_free_suggestions(HunspellHandle* handle, char** slist, int n);
+
+#ifdef __cplusplus
+}
+#endif
