@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:ffi/ffi.dart';
@@ -23,83 +25,258 @@ final DynamicLibrary _dylib = () {
   throw UnsupportedError('Unknown platform: ${Platform.operatingSystem}');
 }();
 
-class HunspellSpellCheckService extends SpellCheckService {
-  final HunspellBindings _bindings;
-  Pointer<HunspellHandle>? _hunspell;
+/// Commands sent to the isolate
+enum _HunspellCommand { init, check, dispose }
 
-  HunspellSpellCheckService({HunspellBindings? bindings}) : _bindings = bindings ?? HunspellBindings(_dylib);
+/// Request data sent to the isolate
+class _HunspellRequest {
+  final int id;
+  final _HunspellCommand command;
+  final List<dynamic>? args;
+
+  _HunspellRequest(this.id, this.command, [this.args]);
+}
+
+/// Response data received from the isolate
+class _HunspellResponse {
+  final int id;
+  final dynamic result;
+  final bool error;
+
+  _HunspellResponse(this.id, this.result, {this.error = false});
+}
+
+/// A request waiting to be processed.
+class _QueuedRequest {
+  final String text;
+  final Completer<List<SuggestionSpan>?> completer;
+  _QueuedRequest(this.text, this.completer);
+}
+
+class HunspellSpellCheckService extends SpellCheckService {
+  Isolate? _isolate;
+  SendPort? _sendPort;
+  final ReceivePort _receivePort = ReceivePort();
+  final Map<int, Completer<dynamic>> _pendingRequests = {};
+  int _nextRequestId = 0;
+  bool _isReady = false;
+
+  // Throttling State
+  bool _isProcessing = false;
+  _QueuedRequest? _nextPendingRequest;
+
+  HunspellSpellCheckService();
 
   Future<void> init(String affPath, String dicPath) async {
-    final aff = affPath.toNativeUtf8();
-    final dic = dicPath.toNativeUtf8();
-    _hunspell = _bindings.FlutterHunspell_create(aff.cast(), dic.cast());
-    malloc.free(aff);
-    malloc.free(dic);
+    _isolate = await Isolate.spawn(_hunspellIsolateEntry, _receivePort.sendPort);
+
+    final completer = Completer<void>();
+    _receivePort.listen((message) {
+      if (_sendPort == null && message is SendPort) {
+        _sendPort = message;
+        completer.complete();
+      } else {
+        _handleResponse(message);
+      }
+    });
+
+    await completer.future;
+
+    // Initialize the Hunspell instance inside the isolate
+    await _sendRequest(_HunspellCommand.init, [affPath, dicPath]);
+    _isReady = true;
+  }
+
+  void _handleResponse(dynamic message) {
+    if (message is _HunspellResponse) {
+      final completer = _pendingRequests.remove(message.id);
+      if (completer != null) {
+        if (message.error) {
+          completer.completeError(message.result);
+        } else {
+          completer.complete(message.result);
+        }
+      }
+    }
+  }
+
+  Future<dynamic> _sendRequest(_HunspellCommand command, [List<dynamic>? args]) {
+    final id = _nextRequestId++;
+    final completer = Completer<dynamic>();
+    _pendingRequests[id] = completer;
+    _sendPort?.send(_HunspellRequest(id, command, args));
+    return completer.future;
   }
 
   @override
-  Future<List<SuggestionSpan>?> fetchSpellCheckSuggestions(Locale locale, String text) async {
-    // Wait for the end of the frame to ensure we don't invalidate layout
-    // while the context menu is trying to build and calculate anchors.
-    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
-      await SchedulerBinding.instance.endOfFrame;
+  Future<List<SuggestionSpan>?> fetchSpellCheckSuggestions(Locale locale, String text) {
+    if (!_isReady) {
+      return Future.value(null);
     }
 
-    if (_hunspell == null) {
-      return null;
+    final completer = Completer<List<SuggestionSpan>?>();
+
+    if (_isProcessing) {
+      // If we are already running, queue this new request.
+      // If there was ALREADY a next request waiting, cancel it (return null)
+      // because it is now obsolete (the user has typed more characters).
+      if (_nextPendingRequest != null) {
+        _nextPendingRequest!.completer.complete(null);
+      }
+      _nextPendingRequest = _QueuedRequest(text, completer);
+    } else {
+      // Start processing immediately
+      _isProcessing = true;
+      _processRequest(text, completer);
     }
 
-    final List<SuggestionSpan> spans = [];
-    final words = text.split(RegExp(r'\s+'));
+    return completer.future;
+  }
 
-    int offset = 0;
-    for (final word in words) {
-      if (word.isEmpty) {
-        offset += 1; // Default split might leave empty strings if multiple spaces
-        continue;
+  Future<void> _processRequest(String text, Completer<List<SuggestionSpan>?> completer) async {
+    try {
+      // Offload the heavy calculation to the isolate
+      final List<dynamic> results = await _sendRequest(_HunspellCommand.check, [text]);
+
+      // Reconstruct SuggestionSpans from the raw data returned by the isolate
+      final List<SuggestionSpan> spans = results.map((item) {
+        final start = item['start'] as int;
+        final end = item['end'] as int;
+        final suggestions = (item['suggestions'] as List<dynamic>).cast<String>();
+        return SuggestionSpan(TextRange(start: start, end: end), suggestions);
+      }).toList();
+
+      // Preserve the safety check: Wait for end of frame to avoid layout thrashing
+      // while the context menu is trying to build and calculate anchors.
+      if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+        await SchedulerBinding.instance.endOfFrame;
       }
 
-      // Must calculate correct offset in original text to handle multiple spaces properly
-      // This simple split/iteration assumes single space separation which is brittle.
-      // A better approach find the word in the text starting from current offset.
-      final wordStart = text.indexOf(word, offset);
-      if (wordStart == -1) break; // Should not happen
-
-      offset = wordStart + word.length;
-
-      // Strip punctuation? Hunspell might handle it or we might need to.
-      // For now pass raw.
-      final wordPtr = word.toNativeUtf8();
-      final result = _bindings.FlutterHunspell_spell(_hunspell!, wordPtr.cast());
-
-      if (result == 0) {
-        // Misspelled
-        final countPtr = malloc<Int>();
-        final suggestionsPtr = _bindings.FlutterHunspell_suggest(_hunspell!, wordPtr.cast(), countPtr);
-        final count = countPtr.value;
-
-        final List<String> suggestions = [];
-        if (suggestionsPtr != nullptr) {
-          for (int i = 0; i < count; i++) {
-            final strPtr = suggestionsPtr[i];
-            suggestions.add(strPtr.cast<Utf8>().toDartString());
-          }
-          _bindings.FlutterHunspell_free_suggestions(_hunspell!, suggestionsPtr, count);
-        }
-        malloc.free(countPtr);
-
-        spans.add(SuggestionSpan(TextRange(start: wordStart, end: wordStart + word.length), suggestions));
+      if (!completer.isCompleted) {
+        completer.complete(spans);
       }
-      malloc.free(wordPtr);
+    } catch (e) {
+      if (!completer.isCompleted) {
+        completer.completeError(e);
+      }
+    } finally {
+      // Check if there is a next pending request
+      if (_nextPendingRequest != null) {
+        final next = _nextPendingRequest!;
+        _nextPendingRequest = null;
+        // Process the next one
+        _processRequest(next.text, next.completer);
+      } else {
+        // No more work
+        _isProcessing = false;
+      }
     }
-
-    return spans;
   }
 
   void dispose() {
-    if (_hunspell != null) {
-      _bindings.FlutterHunspell_destroy(_hunspell!);
-      _hunspell = null;
+    _sendRequest(_HunspellCommand.dispose);
+    _receivePort.close();
+    _isolate?.kill();
+    _isolate = null;
+
+    // Clear pending
+    if (_nextPendingRequest != null) {
+      _nextPendingRequest!.completer.complete(null);
+      _nextPendingRequest = null;
     }
   }
+}
+
+/// Entry point for the background isolate
+void _hunspellIsolateEntry(SendPort sendPort) {
+  final receivePort = ReceivePort();
+  sendPort.send(receivePort.sendPort);
+
+  final bindings = HunspellBindings(_dylib);
+  Pointer<HunspellHandle>? hunspell;
+
+  receivePort.listen((message) {
+    if (message is _HunspellRequest) {
+      try {
+        switch (message.command) {
+          case _HunspellCommand.init:
+            final affPath = message.args![0] as String;
+            final dicPath = message.args![1] as String;
+
+            final aff = affPath.toNativeUtf8();
+            final dic = dicPath.toNativeUtf8();
+            hunspell = bindings.FlutterHunspell_create(aff.cast(), dic.cast());
+            malloc.free(aff);
+            malloc.free(dic);
+
+            sendPort.send(_HunspellResponse(message.id, true));
+            break;
+
+          case _HunspellCommand.check:
+            if (hunspell == null) {
+              sendPort.send(_HunspellResponse(message.id, []));
+              break;
+            }
+            final text = message.args![0] as String;
+            final results = _checkText(bindings, hunspell!, text);
+            sendPort.send(_HunspellResponse(message.id, results));
+            break;
+
+          case _HunspellCommand.dispose:
+            if (hunspell != null) {
+              bindings.FlutterHunspell_destroy(hunspell!);
+              hunspell = null;
+            }
+            sendPort.send(_HunspellResponse(message.id, true));
+            receivePort.close();
+            break;
+        }
+      } catch (e) {
+        sendPort.send(_HunspellResponse(message.id, e.toString(), error: true));
+      }
+    }
+  });
+}
+
+/// Helper to perform the actual spell check logic (Pure Dart + FFI, no Flutter dependencies)
+List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<HunspellHandle> hunspell, String text) {
+  final List<Map<String, dynamic>> results = [];
+  final words = text.split(RegExp(r'\s+'));
+
+  int offset = 0;
+  for (final word in words) {
+    if (word.isEmpty) {
+      offset += 1;
+      continue;
+    }
+
+    final wordStart = text.indexOf(word, offset);
+    if (wordStart == -1) break;
+
+    offset = wordStart + word.length;
+
+    final wordPtr = word.toNativeUtf8();
+    final result = bindings.FlutterHunspell_spell(hunspell, wordPtr.cast());
+
+    if (result == 0) {
+      // Misspelled
+      final countPtr = malloc<Int>();
+      final suggestionsPtr = bindings.FlutterHunspell_suggest(hunspell, wordPtr.cast(), countPtr);
+      final count = countPtr.value;
+
+      final List<String> suggestions = [];
+      if (suggestionsPtr != nullptr) {
+        for (int i = 0; i < count; i++) {
+          final strPtr = suggestionsPtr[i];
+          suggestions.add(strPtr.cast<Utf8>().toDartString());
+        }
+        bindings.FlutterHunspell_free_suggestions(hunspell, suggestionsPtr, count);
+      }
+      malloc.free(countPtr);
+
+      results.add({'start': wordStart, 'end': wordStart + word.length, 'suggestions': suggestions});
+    }
+    malloc.free(wordPtr);
+  }
+  return results;
 }
