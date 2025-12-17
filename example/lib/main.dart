@@ -1,5 +1,8 @@
 import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spellcheck_hunspell/hunspell_spell_check_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -17,6 +20,8 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final HunspellSpellCheckService _spellCheckService = HunspellSpellCheckService();
+  final GlobalKey _textFieldKey = GlobalKey();
+  int? _rightClickOffset;
   bool _ready = false;
 
   @override
@@ -52,6 +57,50 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
+  RenderEditable? _findRenderEditable(RenderObject? object) {
+    if (object is RenderEditable) {
+      return object;
+    }
+    RenderEditable? found;
+    object?.visitChildren((child) {
+      found ??= _findRenderEditable(child);
+    });
+    return found;
+  }
+
+  Widget _buildSpellCheckToolbar(BuildContext context, EditableTextState editableTextState) {
+    final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(
+      editableTextState.currentTextEditingValue.selection.baseOffset,
+    );
+
+    if (suggestionSpan == null) {
+      return const SizedBox.shrink();
+    }
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: suggestionSpan.suggestions.map((suggestion) {
+        return ContextMenuButtonItem(
+          onPressed: () {
+            final newText = editableTextState.currentTextEditingValue.text.replaceRange(
+              suggestionSpan.range.start,
+              suggestionSpan.range.end,
+              suggestion,
+            );
+            editableTextState.userUpdateTextEditingValue(
+              TextEditingValue(
+                text: newText,
+                selection: TextSelection.collapsed(offset: suggestionSpan.range.start + suggestion.length),
+              ),
+              SelectionChangedCause.toolbar,
+            );
+          },
+          label: suggestion,
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -67,16 +116,92 @@ class _MyAppState extends State<MyApp> {
                     children: [
                       Text('Type something (try "speling"):'),
                       SizedBox(height: 20),
-                      TextField(
-                        maxLines: null,
-                        spellCheckConfiguration: SpellCheckConfiguration(
-                          spellCheckService: _spellCheckService,
-                          misspelledTextStyle: const TextStyle(
-                            color: Colors.red, // Highlight misspelled words in red
-                            decoration: TextDecoration.underline,
-                            decorationColor: Colors.red,
-                            decorationStyle: TextDecorationStyle.wavy,
+                      Listener(
+                        onPointerDown: (event) {
+                          if (event.kind == PointerDeviceKind.mouse && event.buttons == kSecondaryMouseButton) {
+                            final renderObject = _textFieldKey.currentContext?.findRenderObject();
+                            final renderEditable = _findRenderEditable(renderObject);
+                            if (renderEditable != null) {
+                              final localOffset = renderEditable.globalToLocal(event.position);
+                              final position = renderEditable.getPositionForPoint(localOffset);
+                              setState(() {
+                                _rightClickOffset = position.offset;
+                              });
+                            }
+                          }
+                        },
+                        child: TextField(
+                          key: _textFieldKey,
+                          maxLines: null,
+                          spellCheckConfiguration: SpellCheckConfiguration(
+                            spellCheckService: _spellCheckService,
+                            misspelledTextStyle: const TextStyle(
+                              color: Colors.red, // Highlight misspelled words in red
+                              decoration: TextDecoration.underline,
+                              decorationColor: Colors.red,
+                              decorationStyle: TextDecorationStyle.wavy,
+                            ),
+                            spellCheckSuggestionsToolbarBuilder:
+                                (BuildContext context, EditableTextState editableTextState) {
+                                  return _buildSpellCheckToolbar(context, editableTextState);
+                                },
                           ),
+                          contextMenuBuilder: (BuildContext context, EditableTextState editableTextState) {
+                            // distinct implementation for desktop right-click
+                            final offset =
+                                _rightClickOffset ?? editableTextState.currentTextEditingValue.selection.baseOffset;
+
+                            // Reset the offset so subsequent interactions don't use stale data
+                            // Actually, maybe better to check if selection has changed?
+                            // For now, this is simpler.
+
+                            final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(offset);
+
+                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+
+                            if (suggestionSpan != null) {
+                              buttonItems.insert(
+                                0,
+                                ContextMenuButtonItem(
+                                  label: 'Add to Dictionary',
+                                  onPressed: () {
+                                    // TODO: Implement Learn
+                                  },
+                                  type: ContextMenuButtonType.custom,
+                                ),
+                              );
+
+                              for (final suggestion in suggestionSpan.suggestions.reversed) {
+                                buttonItems.insert(
+                                  0,
+                                  ContextMenuButtonItem(
+                                    label: suggestion,
+                                    onPressed: () {
+                                      final newText = editableTextState.currentTextEditingValue.text.replaceRange(
+                                        suggestionSpan.range.start,
+                                        suggestionSpan.range.end,
+                                        suggestion,
+                                      );
+                                      editableTextState.userUpdateTextEditingValue(
+                                        TextEditingValue(
+                                          text: newText,
+                                          selection: TextSelection.collapsed(
+                                            offset: suggestionSpan.range.start + suggestion.length,
+                                          ),
+                                        ),
+                                        SelectionChangedCause.toolbar,
+                                      );
+                                    },
+                                  ),
+                                );
+                              }
+                            }
+
+                            return AdaptiveTextSelectionToolbar.buttonItems(
+                              anchors: editableTextState.contextMenuAnchors,
+                              buttonItems: buttonItems,
+                            );
+                          },
                         ),
                       ),
                     ],
