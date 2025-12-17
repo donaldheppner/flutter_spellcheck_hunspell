@@ -7,6 +7,8 @@ import 'dart:ui';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+export 'src/hunspell_configuration.dart';
+export 'src/hunspell_gesture_detector.dart';
 import 'package:flutter_spellcheck_hunspell/flutter_spellcheck_hunspell_bindings_generated.dart';
 
 const String _libName = 'flutter_spellcheck_hunspell';
