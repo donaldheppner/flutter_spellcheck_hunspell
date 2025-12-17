@@ -87,15 +87,21 @@ class _MyAppState extends State<MyApp> {
           onPressed: () {
             // Explicitly hide toolbar to prevent reopening loops
             editableTextState.hideToolbar();
+
+            // Dynamic Range Calculation (Fixing Stale Offsets)
+            // Use the current cursor position to determine the word boundary dynamically
+            final currentOffset = editableTextState.currentTextEditingValue.selection.baseOffset;
+            final validRange = editableTextState.renderEditable.getWordBoundary(TextPosition(offset: currentOffset));
+
             final newText = editableTextState.currentTextEditingValue.text.replaceRange(
-              suggestionSpan.range.start,
-              suggestionSpan.range.end,
+              validRange.start,
+              validRange.end,
               suggestion,
             );
             editableTextState.userUpdateTextEditingValue(
               TextEditingValue(
                 text: newText,
-                selection: TextSelection.collapsed(offset: suggestionSpan.range.start + suggestion.length),
+                selection: TextSelection.collapsed(offset: validRange.start + suggestion.length),
               ),
               SelectionChangedCause.toolbar,
             );
@@ -196,16 +202,24 @@ class _MyAppState extends State<MyApp> {
                                     label: suggestion,
                                     onPressed: () {
                                       editableTextState.hideToolbar();
+
+                                      // Dynamic Range Calculation (Fixing Stale Offsets)
+                                      final currentOffset =
+                                          editableTextState.currentTextEditingValue.selection.baseOffset;
+                                      final validRange = editableTextState.renderEditable.getWordBoundary(
+                                        TextPosition(offset: currentOffset),
+                                      );
+
                                       final newText = editableTextState.currentTextEditingValue.text.replaceRange(
-                                        suggestionSpan.range.start,
-                                        suggestionSpan.range.end,
+                                        validRange.start,
+                                        validRange.end,
                                         suggestion,
                                       );
                                       editableTextState.userUpdateTextEditingValue(
                                         TextEditingValue(
                                           text: newText,
                                           selection: TextSelection.collapsed(
-                                            offset: suggestionSpan.range.start + suggestion.length,
+                                            offset: validRange.start + suggestion.length,
                                           ),
                                         ),
                                         SelectionChangedCause.toolbar,
