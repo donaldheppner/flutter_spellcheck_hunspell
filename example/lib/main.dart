@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spellcheck_hunspell/hunspell_spell_check_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -58,15 +57,18 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  RenderEditable? _findRenderEditable(RenderObject? object) {
-    if (object is RenderEditable) {
-      return object;
+  EditableTextState? _findEditableTextState(GlobalKey key) {
+    EditableTextState? state;
+    void visitor(Element element) {
+      if (element.widget is EditableText) {
+        state = (element as StatefulElement).state as EditableTextState;
+        return;
+      }
+      element.visitChildren(visitor);
     }
-    RenderEditable? found;
-    object?.visitChildren((child) {
-      found ??= _findRenderEditable(child);
-    });
-    return found;
+
+    key.currentContext?.visitChildElements(visitor);
+    return state;
   }
 
   Widget _buildSpellCheckToolbar(BuildContext context, EditableTextState editableTextState) {
@@ -120,20 +122,33 @@ class _MyAppState extends State<MyApp> {
                       Listener(
                         onPointerDown: (event) {
                           if (event.kind == PointerDeviceKind.mouse && event.buttons == kSecondaryMouseButton) {
-                            final renderObject = _textFieldKey.currentContext?.findRenderObject();
-                            final renderEditable = _findRenderEditable(renderObject);
-                            if (renderEditable != null) {
-                              final localOffset = renderEditable.globalToLocal(event.position);
-                              final position = renderEditable.getPositionForPoint(localOffset);
-                              // Move the cursor to the right-clicked position immediately
-                              _controller.selection = TextSelection.collapsed(offset: position.offset);
-                            }
+                            // 1. Synthesize Left Click to move cursor (Native Flutter placement)
+                            final down = PointerDownEvent(
+                              position: event.position,
+                              kind: PointerDeviceKind.mouse,
+                              buttons: kPrimaryButton,
+                            );
+                            final up = PointerUpEvent(
+                              position: event.position,
+                              kind: PointerDeviceKind.mouse,
+                              buttons: kPrimaryButton,
+                            );
+                            GestureBinding.instance.handlePointerEvent(down);
+                            GestureBinding.instance.handlePointerEvent(up);
+
+                            // 2. Schedule the Context Menu to open after the cursor has moved
+                            // and the selection is updated.
+                            Future.delayed(const Duration(milliseconds: 100), () {
+                              final editableTextState = _findEditableTextState(_textFieldKey);
+                              editableTextState?.showToolbar();
+                            });
                           }
                         },
                         child: TextField(
                           key: _textFieldKey,
                           controller: _controller,
                           maxLines: null,
+                          style: const TextStyle(fontSize: 18.0, height: 1.5, color: Colors.black),
                           spellCheckConfiguration: SpellCheckConfiguration(
                             spellCheckService: _spellCheckService,
                             misspelledTextStyle: const TextStyle(

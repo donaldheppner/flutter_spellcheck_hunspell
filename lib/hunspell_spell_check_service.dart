@@ -150,6 +150,9 @@ class HunspellSpellCheckService extends SpellCheckService {
       // while the context menu is trying to build and calculate anchors.
       if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
         await SchedulerBinding.instance.endOfFrame;
+        // Add one more yield to allow any pending microtasks (like gesture cleanup) to finish
+        // before we trigger the text update which invalidates layout.
+        await Future.delayed(Duration.zero);
       }
 
       if (!completer.isCompleted) {
