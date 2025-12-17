@@ -11,7 +11,8 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # Define the Hunspell library provided by the user
 add_library(hunspell STATIC IMPORTED)
 set_target_properties(hunspell PROPERTIES
-  IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/bin/libhunspell.lib"
+  IMPORTED_LOCATION_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/bin/Release/libhunspell.lib"
+  IMPORTED_LOCATION_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}/bin/Debug/libhunspell.lib"
   INTERFACE_COMPILE_DEFINITIONS "HUNSPELL_STATIC"
 )
 
