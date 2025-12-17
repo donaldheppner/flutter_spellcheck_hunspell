@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spellcheck_hunspell/flutter_spellcheck_hunspell_bindings_generated.dart';
 
@@ -38,6 +39,12 @@ class HunspellSpellCheckService extends SpellCheckService {
 
   @override
   Future<List<SuggestionSpan>?> fetchSpellCheckSuggestions(Locale locale, String text) async {
+    // Wait for the end of the frame to ensure we don't invalidate layout
+    // while the context menu is trying to build and calculate anchors.
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.idle) {
+      await SchedulerBinding.instance.endOfFrame;
+    }
+
     if (_hunspell == null) {
       return null;
     }

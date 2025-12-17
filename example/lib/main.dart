@@ -21,7 +21,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final HunspellSpellCheckService _spellCheckService = HunspellSpellCheckService();
   final GlobalKey _textFieldKey = GlobalKey();
-  int? _rightClickOffset;
+  final TextEditingController _controller = TextEditingController();
   bool _ready = false;
 
   @override
@@ -54,6 +54,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _spellCheckService.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -124,14 +125,14 @@ class _MyAppState extends State<MyApp> {
                             if (renderEditable != null) {
                               final localOffset = renderEditable.globalToLocal(event.position);
                               final position = renderEditable.getPositionForPoint(localOffset);
-                              setState(() {
-                                _rightClickOffset = position.offset;
-                              });
+                              // Move the cursor to the right-clicked position immediately
+                              _controller.selection = TextSelection.collapsed(offset: position.offset);
                             }
                           }
                         },
                         child: TextField(
                           key: _textFieldKey,
+                          controller: _controller,
                           maxLines: null,
                           spellCheckConfiguration: SpellCheckConfiguration(
                             spellCheckService: _spellCheckService,
@@ -148,14 +149,9 @@ class _MyAppState extends State<MyApp> {
                           ),
                           contextMenuBuilder: (BuildContext context, EditableTextState editableTextState) {
                             // distinct implementation for desktop right-click
-                            final offset =
-                                _rightClickOffset ?? editableTextState.currentTextEditingValue.selection.baseOffset;
-
-                            // Reset the offset so subsequent interactions don't use stale data
-                            // Actually, maybe better to check if selection has changed?
-                            // For now, this is simpler.
-
-                            final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(offset);
+                            final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(
+                              editableTextState.currentTextEditingValue.selection.baseOffset,
+                            );
 
                             final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
 
