@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/gestures.dart';
@@ -23,7 +22,6 @@ class _MyAppState extends State<MyApp> {
   final GlobalKey _textFieldKey = GlobalKey();
   final TextEditingController _controller = TextEditingController();
   bool _ready = false;
-  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -54,7 +52,6 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
     _spellCheckService.dispose();
     _controller.dispose();
     super.dispose();
@@ -127,9 +124,6 @@ class _MyAppState extends State<MyApp> {
                       Listener(
                         onPointerDown: (event) {
                           if (event.kind == PointerDeviceKind.mouse && event.buttons == kSecondaryMouseButton) {
-                            // Cancel any pending toolbar open requests
-                            _debounceTimer?.cancel();
-
                             // 1. Synthesize Left Click to move cursor (Native Flutter placement)
                             // Use a distinct pointer ID (999) to avoid conflict with the real mouse
                             final down = PointerDownEvent(
@@ -149,7 +143,7 @@ class _MyAppState extends State<MyApp> {
 
                             // 2. Schedule the Context Menu to open after the cursor has moved
                             // and the selection is updated.
-                            _debounceTimer = Timer(const Duration(milliseconds: 100), () {
+                            Future.microtask(() {
                               final editableTextState = _findEditableTextState(_textFieldKey);
                               editableTextState?.showToolbar();
                             });
