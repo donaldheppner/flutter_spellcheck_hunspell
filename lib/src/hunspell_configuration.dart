@@ -25,7 +25,7 @@ class HunspellConfiguration {
 
   /// Builds a [contextMenuBuilder] that injects spell check suggestions and
   /// an "Add to Dictionary" button into the standard context menu.
-  static Widget Function(BuildContext, EditableTextState) buildContextMenu({VoidCallback? onAddToDictionary}) {
+  static Widget Function(BuildContext, EditableTextState) buildContextMenu({Function(String)? onAddToDictionary}) {
     return (BuildContext context, EditableTextState editableTextState) {
       // distinct implementation for desktop right-click
       final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(
@@ -42,7 +42,13 @@ class HunspellConfiguration {
             onPressed: () {
               // Make sure to hide toolbar here too
               editableTextState.hideToolbar();
-              onAddToDictionary?.call();
+
+              // Calculate the word to add dynamically
+              final currentOffset = editableTextState.currentTextEditingValue.selection.baseOffset;
+              final validRange = editableTextState.renderEditable.getWordBoundary(TextPosition(offset: currentOffset));
+              final word = editableTextState.currentTextEditingValue.text.substring(validRange.start, validRange.end);
+
+              onAddToDictionary?.call(word);
             },
             type: ContextMenuButtonType.custom,
           ),

@@ -88,9 +88,11 @@ class _MyAppState extends State<MyApp> {
                             ),
                           ),
                           contextMenuBuilder: HunspellConfiguration.buildContextMenu(
-                            onAddToDictionary: () {
-                              // TODO: Implement Learn
-                              debugPrint("Add to Dictionary clicked");
+                            onAddToDictionary: (word) async {
+                              await _spellCheckService.updatePersonalDictionary(word);
+                              debugPrint("Added '$word' to dictionary");
+                              // Trigger re-check by notifying listeners (hacky but might work) or just wait for next edit
+                              // _controller.notifyListeners();
                             },
                           ),
                         ),

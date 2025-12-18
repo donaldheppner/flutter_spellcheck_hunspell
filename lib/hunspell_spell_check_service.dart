@@ -28,7 +28,7 @@ final DynamicLibrary _dylib = () {
 }();
 
 /// Commands sent to the isolate
-enum _HunspellCommand { init, check, dispose }
+enum _HunspellCommand { init, check, dispose, add }
 
 /// Request data sent to the isolate
 class _HunspellRequest {
@@ -178,6 +178,14 @@ class HunspellSpellCheckService extends SpellCheckService {
     }
   }
 
+  /// Adds [word] to the personal dictionary at runtime.
+  /// Returns `true` if successful.
+  Future<bool> updatePersonalDictionary(String word) async {
+    if (!_isReady) return false;
+    final result = await _sendRequest(_HunspellCommand.add, [word]);
+    return result as bool;
+  }
+
   void dispose() {
     _sendRequest(_HunspellCommand.dispose);
     _receivePort.close();
@@ -234,6 +242,18 @@ void _hunspellIsolateEntry(SendPort sendPort) {
             }
             sendPort.send(_HunspellResponse(message.id, true));
             receivePort.close();
+            break;
+
+          case _HunspellCommand.add:
+            if (hunspell == null) {
+              sendPort.send(_HunspellResponse(message.id, false));
+              break;
+            }
+            final word = message.args![0] as String;
+            final wordPtr = word.toNativeUtf8();
+            final result = bindings.FlutterHunspell_add(hunspell!, wordPtr.cast());
+            malloc.free(wordPtr);
+            sendPort.send(_HunspellResponse(message.id, result == 0));
             break;
         }
       } catch (e) {

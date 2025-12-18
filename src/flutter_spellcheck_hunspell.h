@@ -25,6 +25,7 @@ FFI_PLUGIN_EXPORT HunspellHandle* FlutterHunspell_create(const char* aff_path, c
 FFI_PLUGIN_EXPORT void FlutterHunspell_destroy(HunspellHandle* handle);
 FFI_PLUGIN_EXPORT int FlutterHunspell_spell(HunspellHandle* handle, const char* word);
 FFI_PLUGIN_EXPORT char** FlutterHunspell_suggest(HunspellHandle* handle, const char* word, int* count);
+FFI_PLUGIN_EXPORT int FlutterHunspell_add(HunspellHandle* handle, const char* word);
 FFI_PLUGIN_EXPORT void FlutterHunspell_free_suggestions(HunspellHandle* handle, char** slist, int n);
 
 #ifdef __cplusplus
