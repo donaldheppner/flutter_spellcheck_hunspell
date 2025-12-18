@@ -99,7 +99,10 @@ class _MyAppState extends State<MyApp> {
                         ),
                       ),
                       // a vanilla text field for comparison
-                      const TextField(decoration: InputDecoration(hintText: 'plain textbox'), maxLines: null),
+                      const TextField(
+                        decoration: InputDecoration(hintText: 'plain TextField no spellcheck'),
+                        maxLines: null,
+                      ),
                     ],
                   )
                 : const CircularProgressIndicator(),
