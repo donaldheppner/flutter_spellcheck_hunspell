@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_spellcheck_hunspell_example/main.dart';
@@ -40,16 +41,33 @@ void main() {
     await tester.tap(addToDictFinder);
     await tester.pumpAndSettle();
 
-    // 7. Verify logic
-    // We can't easily verify the internal dictionary state from outside without exposing it,
-    // but if the code runs without error and the menu closes, it's a good sign.
-    // The debugPrint in main.dart is hard to assert on in integration test without a log capturer.
-    // Ideally, we'd verify the red squiggle is gone, but that requires finding the RenderEditable and inspecting text spans.
-
-    // For now, let's verify the menu is gone, which implies the action completed.
+    // Verify menu is gone
     expect(find.text('Add to Dictionary'), findsNothing);
 
-    // Allow time for the async add operation
-    await tester.pump(const Duration(seconds: 1));
+    // Allow time for the async add operation and the re-check
+    await tester.pump(const Duration(seconds: 2));
+
+    // 8. Verify the red squiggle is GONE
+    final editableFinder = find.byType(EditableText);
+    final renderEditable = tester.renderObject<RenderEditable>(editableFinder);
+
+    // Helper to traverse spans and check for red wavy underline
+    bool hasRedSquiggle(InlineSpan? span) {
+      if (span == null) return false;
+      if (span is TextSpan) {
+        if (span.style?.decoration == TextDecoration.underline &&
+            span.style?.decorationStyle == TextDecorationStyle.wavy &&
+            span.style?.decorationColor == Colors.red) {
+          return true;
+        }
+        if (span.children != null) {
+          return span.children!.any(hasRedSquiggle);
+        }
+      }
+      return false;
+    }
+
+    final hasSquiggle = hasRedSquiggle(renderEditable.text);
+    expect(hasSquiggle, isFalse, reason: "Red squiggle should be removed after adding word to dictionary");
   });
 }
