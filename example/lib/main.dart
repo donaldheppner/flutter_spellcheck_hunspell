@@ -19,7 +19,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final HunspellSpellCheckService _spellCheckService = HunspellSpellCheckService();
   final GlobalKey _textFieldKey = GlobalKey();
-  final TextEditingController _controller = TextEditingController();
+  final HunspellTextEditingController _controller = HunspellTextEditingController();
   bool _ready = false;
 
   @override
@@ -90,9 +90,6 @@ class _MyAppState extends State<MyApp> {
                           contextMenuBuilder: HunspellConfiguration.buildContextMenu(
                             onAddToDictionary: (word) async {
                               await _spellCheckService.updatePersonalDictionary(word);
-                              debugPrint("Added '$word' to dictionary");
-                              // Trigger re-check by notifying listeners (hacky but might work) or just wait for next edit
-                              // _controller.notifyListeners();
                             },
                           ),
                         ),
@@ -106,5 +103,12 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+}
+
+class HunspellTextEditingController extends TextEditingController {
+  /// Force listeners to be notified, triggering a spell check re-run.
+  void refresh() {
+    notifyListeners();
   }
 }

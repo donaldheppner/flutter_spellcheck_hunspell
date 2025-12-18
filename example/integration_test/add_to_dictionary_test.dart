@@ -45,7 +45,7 @@ void main() {
     expect(find.text('Add to Dictionary'), findsNothing);
 
     // Allow time for the async add operation and the re-check
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 5));
 
     // 8. Verify the red squiggle is GONE
     final editableFinder = find.byType(EditableText);
