@@ -178,12 +178,51 @@ class HunspellSpellCheckService extends SpellCheckService {
     }
   }
 
-  /// Adds [word] to the personal dictionary at runtime.
+  // Persistence
+  File? _personalDictionaryFile;
+
+  /// Sets the file used for the personal dictionary.
+  /// If [file] exists, its contents are loaded into the dictionary.
+  /// If it doesn't exist, it will be created when the first word is added.
+  Future<void> setPersonalDictionary(File file) async {
+    _personalDictionaryFile = file;
+    if (await file.exists()) {
+      try {
+        final content = await file.readAsString();
+        // Split by lines and trim whitespace
+        final words = content.split('\n').map((w) => w.trim()).where((w) => w.isNotEmpty);
+        for (final word in words) {
+          // Load each word into the runtime dictionary
+          // We fire-and-forget these requests to avoid blocking init too long,
+          // or we could await them if strict order matters (usually fine).
+          await _sendRequest(_HunspellCommand.add, [word]);
+        }
+      } catch (e) {
+        // print("Error loading dictionary: $e");
+      }
+    }
+  }
+
+  /// Adds [word] to the personal dictionary at runtime AND persists it to disk if configured.
   /// Returns `true` if successful.
   Future<bool> updatePersonalDictionary(String word) async {
     if (!_isReady) return false;
+
+    // 1. Add to runtime memory
     final result = await _sendRequest(_HunspellCommand.add, [word]);
-    return result as bool;
+    final success = result as bool;
+
+    // 2. Persist to storage if configured
+    if (success && _personalDictionaryFile != null) {
+      try {
+        // Append word on a new line
+        await _personalDictionaryFile!.writeAsString('$word\n', mode: FileMode.append);
+      } catch (e) {
+        // print("Error saving word: $e");
+      }
+    }
+
+    return success;
   }
 
   void dispose() {

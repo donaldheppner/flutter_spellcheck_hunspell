@@ -42,6 +42,10 @@ class _MyAppState extends State<MyApp> {
 
     await _spellCheckService.init(affPath, dicPath);
 
+    // Configure persistent personal dictionary
+    final personalDicFile = File('${docsDir.path}/user_dictionary.txt');
+    await _spellCheckService.setPersonalDictionary(personalDicFile);
+
     if (mounted) {
       setState(() {
         _ready = true;
