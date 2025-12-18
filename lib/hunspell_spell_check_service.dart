@@ -266,19 +266,15 @@ void _hunspellIsolateEntry(SendPort sendPort) {
 /// Helper to perform the actual spell check logic (Pure Dart + FFI, no Flutter dependencies)
 List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<HunspellHandle> hunspell, String text) {
   final List<Map<String, dynamic>> results = [];
-  final words = text.split(RegExp(r'\s+'));
+  // Regex to find words: Unicode letters, marks, numbers, underscores, and apostrophes.
+  // This effectively skips punctuation and whitespace.
+  final RegExp wordRegex = RegExp(r"[\p{L}\p{M}\p{N}_']+", unicode: true);
+  final matches = wordRegex.allMatches(text);
 
-  int offset = 0;
-  for (final word in words) {
-    if (word.isEmpty) {
-      offset += 1;
-      continue;
-    }
-
-    final wordStart = text.indexOf(word, offset);
-    if (wordStart == -1) break;
-
-    offset = wordStart + word.length;
+  for (final match in matches) {
+    final word = match.group(0)!;
+    final wordStart = match.start;
+    final wordEnd = match.end;
 
     final wordPtr = word.toNativeUtf8();
     final result = bindings.FlutterHunspell_spell(hunspell, wordPtr.cast());
@@ -299,7 +295,7 @@ List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<Hunspel
       }
       malloc.free(countPtr);
 
-      results.add({'start': wordStart, 'end': wordStart + word.length, 'suggestions': suggestions});
+      results.add({'start': wordStart, 'end': wordEnd, 'suggestions': suggestions});
     }
     malloc.free(wordPtr);
   }
