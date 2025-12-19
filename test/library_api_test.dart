@@ -42,6 +42,7 @@ void main() {
       // Check known correct word
       final correct = await service.fetchSpellCheckSuggestions(const Locale('en', 'US'), 'hello');
       // service returns list of spans for ERRORS. Should be empty or null for correct.
+      expect(correct, isEmpty);
       // Actually fetchSpellCheckSuggestions returns List<SuggestionSpan>?
       // If no errors, it might return empty list or not contain 'hello'.
 
