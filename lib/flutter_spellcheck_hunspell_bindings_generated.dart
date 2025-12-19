@@ -82,6 +82,17 @@ class HunspellBindings {
         )
       >();
 
+  int FlutterHunspell_add(ffi.Pointer<HunspellHandle> handle, ffi.Pointer<ffi.Char> word) {
+    return _FlutterHunspell_add(handle, word);
+  }
+
+  late final _FlutterHunspell_addPtr =
+      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<HunspellHandle>, ffi.Pointer<ffi.Char>)>>(
+        'FlutterHunspell_add',
+      );
+  late final _FlutterHunspell_add =
+      _FlutterHunspell_addPtr.asFunction<int Function(ffi.Pointer<HunspellHandle>, ffi.Pointer<ffi.Char>)>();
+
   void FlutterHunspell_free_suggestions(
     ffi.Pointer<HunspellHandle> handle,
     ffi.Pointer<ffi.Pointer<ffi.Char>> slist,

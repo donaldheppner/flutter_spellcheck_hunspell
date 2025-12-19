@@ -49,6 +49,13 @@ FFI_PLUGIN_EXPORT char** FlutterHunspell_suggest(HunspellHandle* handle, const c
     return result;
 }
 
+FFI_PLUGIN_EXPORT int FlutterHunspell_add(HunspellHandle* handle, const char* word) {
+    if (!handle || !word) return 0;
+    
+    std::string wordStr(word);
+    return reinterpret_cast<Hunspell*>(handle)->add(wordStr);
+}
+
 FFI_PLUGIN_EXPORT void FlutterHunspell_free_suggestions(HunspellHandle* handle, char** slist, int n) {
     if (slist) {
         for (int i = 0; i < n; ++i) {

@@ -1,6 +1,5 @@
 import 'dart:io';
-import 'dart:ui';
-import 'package:flutter/gestures.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spellcheck_hunspell/hunspell_spell_check_service.dart';
@@ -20,7 +19,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final HunspellSpellCheckService _spellCheckService = HunspellSpellCheckService();
   final GlobalKey _textFieldKey = GlobalKey();
-  final TextEditingController _controller = TextEditingController();
+  final HunspellTextEditingController _controller = HunspellTextEditingController();
   bool _ready = false;
 
   @override
@@ -43,6 +42,10 @@ class _MyAppState extends State<MyApp> {
 
     await _spellCheckService.init(affPath, dicPath);
 
+    // Configure persistent personal dictionary
+    final personalDicFile = File('${docsDir.path}/user_dictionary.txt');
+    await _spellCheckService.setPersonalDictionary(personalDicFile);
+
     if (mounted) {
       setState(() {
         _ready = true;
@@ -55,61 +58,6 @@ class _MyAppState extends State<MyApp> {
     _spellCheckService.dispose();
     _controller.dispose();
     super.dispose();
-  }
-
-  EditableTextState? _findEditableTextState(GlobalKey key) {
-    EditableTextState? state;
-    void visitor(Element element) {
-      if (element.widget is EditableText) {
-        state = (element as StatefulElement).state as EditableTextState;
-        return;
-      }
-      element.visitChildren(visitor);
-    }
-
-    key.currentContext?.visitChildElements(visitor);
-    return state;
-  }
-
-  Widget _buildSpellCheckToolbar(BuildContext context, EditableTextState editableTextState) {
-    final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(
-      editableTextState.currentTextEditingValue.selection.baseOffset,
-    );
-
-    if (suggestionSpan == null) {
-      return const SizedBox.shrink();
-    }
-
-    return AdaptiveTextSelectionToolbar.buttonItems(
-      anchors: editableTextState.contextMenuAnchors,
-      buttonItems: suggestionSpan.suggestions.map((suggestion) {
-        return ContextMenuButtonItem(
-          onPressed: () {
-            // Explicitly hide toolbar to prevent reopening loops
-            editableTextState.hideToolbar();
-
-            // Dynamic Range Calculation (Fixing Stale Offsets)
-            // Use the current cursor position to determine the word boundary dynamically
-            final currentOffset = editableTextState.currentTextEditingValue.selection.baseOffset;
-            final validRange = editableTextState.renderEditable.getWordBoundary(TextPosition(offset: currentOffset));
-
-            final newText = editableTextState.currentTextEditingValue.text.replaceRange(
-              validRange.start,
-              validRange.end,
-              suggestion,
-            );
-            editableTextState.userUpdateTextEditingValue(
-              TextEditingValue(
-                text: newText,
-                selection: TextSelection.collapsed(offset: validRange.start + suggestion.length),
-              ),
-              SelectionChangedCause.toolbar,
-            );
-          },
-          label: suggestion,
-        );
-      }).toList(),
-    );
   }
 
   @override
@@ -127,118 +75,34 @@ class _MyAppState extends State<MyApp> {
                     children: [
                       Text('Type something (try "speling"):'),
                       SizedBox(height: 20),
-                      Listener(
-                        onPointerDown: (event) {
-                          if (event.kind == PointerDeviceKind.mouse && event.buttons == kSecondaryMouseButton) {
-                            // 1. Synthesize Left Click to move cursor (Native Flutter placement)
-                            // Use a distinct pointer ID (999) to avoid conflict with the real mouse
-                            final down = PointerDownEvent(
-                              pointer: 999,
-                              position: event.position,
-                              kind: PointerDeviceKind.mouse,
-                              buttons: kPrimaryButton,
-                            );
-                            final up = PointerUpEvent(
-                              pointer: 999,
-                              position: event.position,
-                              kind: PointerDeviceKind.mouse,
-                              buttons: kPrimaryButton,
-                            );
-                            GestureBinding.instance.handlePointerEvent(down);
-                            GestureBinding.instance.handlePointerEvent(up);
-
-                            // 2. Schedule the Context Menu to open after the cursor has moved
-                            // and the selection is updated.
-                            Future.microtask(() {
-                              final editableTextState = _findEditableTextState(_textFieldKey);
-                              editableTextState?.showToolbar();
-                            });
-                          }
-                        },
+                      HunspellGestureDetector(
+                        fieldKey: _textFieldKey,
                         child: TextField(
                           key: _textFieldKey,
                           controller: _controller,
                           maxLines: null,
                           style: const TextStyle(fontSize: 18.0, height: 1.5, color: Colors.black),
-                          spellCheckConfiguration: SpellCheckConfiguration(
-                            spellCheckService: _spellCheckService,
+                          spellCheckConfiguration: HunspellConfiguration.build(
+                            service: _spellCheckService,
                             misspelledTextStyle: const TextStyle(
-                              color: Colors.red, // Highlight misspelled words in red
+                              color: Colors.red,
                               decoration: TextDecoration.underline,
                               decorationColor: Colors.red,
                               decorationStyle: TextDecorationStyle.wavy,
                             ),
-                            spellCheckSuggestionsToolbarBuilder:
-                                (BuildContext context, EditableTextState editableTextState) {
-                                  return _buildSpellCheckToolbar(context, editableTextState);
-                                },
                           ),
-                          contextMenuBuilder: (BuildContext context, EditableTextState editableTextState) {
-                            // distinct implementation for desktop right-click
-                            final suggestionSpan = editableTextState.findSuggestionSpanAtCursorIndex(
-                              editableTextState.currentTextEditingValue.selection.baseOffset,
-                            );
-
-                            final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
-
-                            if (suggestionSpan != null) {
-                              buttonItems.insert(
-                                0,
-                                ContextMenuButtonItem(
-                                  label: 'Add to Dictionary',
-                                  onPressed: () {
-                                    // Make sure to hide toolbar here too
-                                    editableTextState.hideToolbar();
-                                    // TODO: Implement Learn
-                                  },
-                                  type: ContextMenuButtonType.custom,
-                                ),
-                              );
-
-                              for (final suggestion in suggestionSpan.suggestions.reversed) {
-                                buttonItems.insert(
-                                  0,
-                                  ContextMenuButtonItem(
-                                    label: suggestion,
-                                    onPressed: () {
-                                      editableTextState.hideToolbar();
-
-                                      // Dynamic Range Calculation (Fixing Stale Offsets)
-                                      final currentOffset =
-                                          editableTextState.currentTextEditingValue.selection.baseOffset;
-                                      final validRange = editableTextState.renderEditable.getWordBoundary(
-                                        TextPosition(offset: currentOffset),
-                                      );
-
-                                      final newText = editableTextState.currentTextEditingValue.text.replaceRange(
-                                        validRange.start,
-                                        validRange.end,
-                                        suggestion,
-                                      );
-                                      editableTextState.userUpdateTextEditingValue(
-                                        TextEditingValue(
-                                          text: newText,
-                                          selection: TextSelection.collapsed(
-                                            offset: validRange.start + suggestion.length,
-                                          ),
-                                        ),
-                                        SelectionChangedCause.toolbar,
-                                      );
-                                    },
-                                  ),
-                                );
-                              }
-                            }
-
-                            return AdaptiveTextSelectionToolbar.buttonItems(
-                              anchors: editableTextState.contextMenuAnchors,
-                              buttonItems: buttonItems,
-                            );
-                          },
+                          contextMenuBuilder: HunspellConfiguration.buildContextMenu(
+                            onAddToDictionary: (word) async {
+                              await _spellCheckService.updatePersonalDictionary(word);
+                            },
+                          ),
                         ),
                       ),
                       // a vanilla text field for comparison
-                      const TextField(decoration: InputDecoration(hintText: 'plain textbox'), maxLines: null),
+                      const TextField(
+                        decoration: InputDecoration(hintText: 'plain TextField no spellcheck'),
+                        maxLines: null,
+                      ),
                     ],
                   )
                 : const CircularProgressIndicator(),
@@ -246,5 +110,12 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+}
+
+class HunspellTextEditingController extends TextEditingController {
+  /// Force listeners to be notified, triggering a spell check re-run.
+  void refresh() {
+    notifyListeners();
   }
 }

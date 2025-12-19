@@ -7,6 +7,8 @@ import 'dart:ui';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+export 'src/hunspell_configuration.dart';
+export 'src/hunspell_gesture_detector.dart';
 import 'package:flutter_spellcheck_hunspell/flutter_spellcheck_hunspell_bindings_generated.dart';
 
 const String _libName = 'flutter_spellcheck_hunspell';
@@ -26,7 +28,7 @@ final DynamicLibrary _dylib = () {
 }();
 
 /// Commands sent to the isolate
-enum _HunspellCommand { init, check, dispose }
+enum _HunspellCommand { init, check, dispose, add }
 
 /// Request data sent to the isolate
 class _HunspellRequest {
@@ -176,6 +178,53 @@ class HunspellSpellCheckService extends SpellCheckService {
     }
   }
 
+  // Persistence
+  File? _personalDictionaryFile;
+
+  /// Sets the file used for the personal dictionary.
+  /// If [file] exists, its contents are loaded into the dictionary.
+  /// If it doesn't exist, it will be created when the first word is added.
+  Future<void> setPersonalDictionary(File file) async {
+    _personalDictionaryFile = file;
+    if (await file.exists()) {
+      try {
+        final content = await file.readAsString();
+        // Split by lines and trim whitespace
+        final words = content.split('\n').map((w) => w.trim()).where((w) => w.isNotEmpty);
+        for (final word in words) {
+          // Load each word into the runtime dictionary
+          // We fire-and-forget these requests to avoid blocking init too long,
+          // or we could await them if strict order matters (usually fine).
+          await _sendRequest(_HunspellCommand.add, [word]);
+        }
+      } catch (e) {
+        // print("Error loading dictionary: $e");
+      }
+    }
+  }
+
+  /// Adds [word] to the personal dictionary at runtime AND persists it to disk if configured.
+  /// Returns `true` if successful.
+  Future<bool> updatePersonalDictionary(String word) async {
+    if (!_isReady) return false;
+
+    // 1. Add to runtime memory
+    final result = await _sendRequest(_HunspellCommand.add, [word]);
+    final success = result as bool;
+
+    // 2. Persist to storage if configured
+    if (success && _personalDictionaryFile != null) {
+      try {
+        // Append word on a new line
+        await _personalDictionaryFile!.writeAsString('$word\n', mode: FileMode.append);
+      } catch (e) {
+        // print("Error saving word: $e");
+      }
+    }
+
+    return success;
+  }
+
   void dispose() {
     _sendRequest(_HunspellCommand.dispose);
     _receivePort.close();
@@ -233,6 +282,18 @@ void _hunspellIsolateEntry(SendPort sendPort) {
             sendPort.send(_HunspellResponse(message.id, true));
             receivePort.close();
             break;
+
+          case _HunspellCommand.add:
+            if (hunspell == null) {
+              sendPort.send(_HunspellResponse(message.id, false));
+              break;
+            }
+            final word = message.args![0] as String;
+            final wordPtr = word.toNativeUtf8();
+            final result = bindings.FlutterHunspell_add(hunspell!, wordPtr.cast());
+            malloc.free(wordPtr);
+            sendPort.send(_HunspellResponse(message.id, result == 0));
+            break;
         }
       } catch (e) {
         sendPort.send(_HunspellResponse(message.id, e.toString(), error: true));
@@ -244,19 +305,15 @@ void _hunspellIsolateEntry(SendPort sendPort) {
 /// Helper to perform the actual spell check logic (Pure Dart + FFI, no Flutter dependencies)
 List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<HunspellHandle> hunspell, String text) {
   final List<Map<String, dynamic>> results = [];
-  final words = text.split(RegExp(r'\s+'));
+  // Regex to find words: Unicode letters, marks, numbers, underscores, and apostrophes.
+  // This effectively skips punctuation and whitespace.
+  final RegExp wordRegex = RegExp(r"[\p{L}\p{M}\p{N}_']+", unicode: true);
+  final matches = wordRegex.allMatches(text);
 
-  int offset = 0;
-  for (final word in words) {
-    if (word.isEmpty) {
-      offset += 1;
-      continue;
-    }
-
-    final wordStart = text.indexOf(word, offset);
-    if (wordStart == -1) break;
-
-    offset = wordStart + word.length;
+  for (final match in matches) {
+    final word = match.group(0)!;
+    final wordStart = match.start;
+    final wordEnd = match.end;
 
     final wordPtr = word.toNativeUtf8();
     final result = bindings.FlutterHunspell_spell(hunspell, wordPtr.cast());
@@ -277,7 +334,7 @@ List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<Hunspel
       }
       malloc.free(countPtr);
 
-      results.add({'start': wordStart, 'end': wordStart + word.length, 'suggestions': suggestions});
+      results.add({'start': wordStart, 'end': wordEnd, 'suggestions': suggestions});
     }
     malloc.free(wordPtr);
   }
