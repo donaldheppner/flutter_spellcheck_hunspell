@@ -54,8 +54,7 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
       }
     } else if (isLeftClick) {
       if (widget.showContextMenu == ShowContextMenu.leftClick || widget.showContextMenu == ShowContextMenu.both) {
-        // We defer showing the menu until PointerUp so the cursor moves first
-        _pendingLeftClickShow = true;
+        _handleLeftClick(event);
       }
     }
   }
@@ -63,16 +62,14 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
   void _handlePointerUp(PointerUpEvent event) {
     if (event.pointer == 999) return;
     if (event.kind != PointerDeviceKind.mouse) return;
+  }
 
-    if (_pendingLeftClickShow) {
-      _pendingLeftClickShow = false;
-      // Schedule showing the toolbar.
-      // We use a small delay or microtask to allow the TextField's tap handler
-      // (which also runs on up) to update the selection first.
-      Future.delayed(Duration.zero, () {
-        _showToolbar(checkForMisspelling: true);
-      });
-    }
+  void _handleLeftClick(PointerDownEvent event) {
+    //GestureBinding.instance.handlePointerEvent(event);
+
+    Future.delayed(Duration.zero, () {
+      _showToolbar(checkForMisspelling: true);
+    });
   }
 
   void _handleRightClick(PointerDownEvent event) {

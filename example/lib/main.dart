@@ -76,8 +76,8 @@ class _MyAppState extends State<MyApp> {
                       Text('Type something (try "speling"):'),
                       SizedBox(height: 20),
                       HunspellGestureDetector(
-                        showContextMenu: ShowContextMenu.leftClick,
                         fieldKey: _textFieldKey,
+                        showContextMenu: ShowContextMenu.leftClick,
                         child: TextField(
                           key: _textFieldKey,
                           controller: _controller,
@@ -100,23 +100,9 @@ class _MyAppState extends State<MyApp> {
                         ),
                       ),
                       // a vanilla text field for comparison
-                      TextField(
+                      const TextField(
+                        decoration: InputDecoration(hintText: 'plain TextField no spellcheck'),
                         maxLines: null,
-                        style: const TextStyle(fontSize: 18.0, height: 1.5, color: Colors.black),
-                        spellCheckConfiguration: HunspellConfiguration.build(
-                          service: _spellCheckService,
-                          misspelledTextStyle: const TextStyle(
-                            color: Colors.red,
-                            decoration: TextDecoration.underline,
-                            decorationColor: Colors.red,
-                            decorationStyle: TextDecorationStyle.wavy,
-                          ),
-                        ),
-                        contextMenuBuilder: HunspellConfiguration.buildContextMenu(
-                          onAddToDictionary: (word) async {
-                            await _spellCheckService.updatePersonalDictionary(word);
-                          },
-                        ),
                       ),
                     ],
                   )
