@@ -70,7 +70,7 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
       // We use a small delay or microtask to allow the TextField's tap handler
       // (which also runs on up) to update the selection first.
       Future.delayed(Duration.zero, () {
-        _showToolbar();
+        _showToolbar(checkForMisspelling: true);
       });
     }
   }
@@ -94,13 +94,37 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
 
     // 2. Schedule the Context Menu
     Future.delayed(Duration.zero, () {
-      _showToolbar();
+      _showToolbar(checkForMisspelling: false);
     });
   }
 
-  void _showToolbar() {
+  void _showToolbar({bool checkForMisspelling = false}) {
     final editableTextState = _findEditableTextState(widget.fieldKey);
-    editableTextState?.showToolbar();
+    if (editableTextState == null) return;
+
+    if (checkForMisspelling) {
+      final spellResults = editableTextState.spellCheckResults;
+      if (spellResults == null) return;
+
+      final selection = editableTextState.textEditingValue.selection;
+      if (!selection.isValid || !selection.isCollapsed) return;
+
+      bool isMisspelled = false;
+      for (final span in spellResults.suggestionSpans) {
+        // loose check: if cursor is touching the range
+        // (inclusive of start/end to allow clicking 'around' the word easily)
+        if (selection.baseOffset >= span.range.start && selection.baseOffset <= span.range.end) {
+          isMisspelled = true;
+          break;
+        }
+      }
+
+      if (!isMisspelled) {
+        return;
+      }
+    }
+
+    editableTextState.showToolbar();
   }
 
   EditableTextState? _findEditableTextState(GlobalKey key) {
