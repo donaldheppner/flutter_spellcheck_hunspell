@@ -29,9 +29,6 @@ class HunspellGestureDetector extends StatefulWidget {
 }
 
 class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
-  // Track if we are waiting for a left-click up event to show the menu
-  bool _pendingLeftClickShow = false;
-
   @override
   Widget build(BuildContext context) {
     return Listener(onPointerDown: _handlePointerDown, onPointerUp: _handlePointerUp, child: widget.child);
@@ -44,9 +41,6 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
 
     final isRightClick = event.buttons == kSecondaryMouseButton;
     final isLeftClick = event.buttons == kPrimaryButton;
-
-    // Reset pending state on any new down event
-    _pendingLeftClickShow = false;
 
     if (isRightClick) {
       if (widget.showContextMenu == ShowContextMenu.rightClick || widget.showContextMenu == ShowContextMenu.both) {
