@@ -65,29 +65,15 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
   }
 
   void _handleLeftClick(PointerDownEvent event) {
-    //GestureBinding.instance.handlePointerEvent(event);
-
+    // We defer to allow cursor movement (handled by Flutter natively for left click)
     Future.delayed(Duration.zero, () {
-      _showToolbar(checkForMisspelling: true);
+      _showToolbar(checkForMisspelling: true, eventPosition: event.position);
     });
   }
 
   void _handleRightClick(PointerDownEvent event) {
     // 1. Synthesize Left Click to move cursor (Native Flutter placement)
-    final down = PointerDownEvent(
-      pointer: 999,
-      position: event.position,
-      kind: PointerDeviceKind.mouse,
-      buttons: kPrimaryButton,
-    );
-    final up = PointerUpEvent(
-      pointer: 999,
-      position: event.position,
-      kind: PointerDeviceKind.mouse,
-      buttons: kPrimaryButton,
-    );
-    GestureBinding.instance.handlePointerEvent(down);
-    GestureBinding.instance.handlePointerEvent(up);
+    _synthesizeTap(event.position, kPrimaryButton);
 
     // 2. Schedule the Context Menu
     Future.delayed(Duration.zero, () {
@@ -95,7 +81,7 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
     });
   }
 
-  void _showToolbar({bool checkForMisspelling = false}) {
+  void _showToolbar({bool checkForMisspelling = false, Offset? eventPosition}) {
     final editableTextState = _findEditableTextState(widget.fieldKey);
     if (editableTextState == null) return;
 
@@ -116,12 +102,25 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
         }
       }
 
-      if (!isMisspelled) {
-        return;
+      if (isMisspelled && eventPosition != null) {
+        // Synthesize a Right Click (Secondary Tap) at the current location.
+        // This forces the TextField to update its "last secondary tap position"
+        // and show the menu at the correct spot.
+        _synthesizeTap(eventPosition, kSecondaryButton);
       }
+      // If not misspelled, do nothing.
+      return;
     }
 
+    // Fallback for direct invocation (Right Click behavior)
     editableTextState.showToolbar();
+  }
+
+  void _synthesizeTap(Offset position, int button) {
+    final down = PointerDownEvent(pointer: 999, position: position, kind: PointerDeviceKind.mouse, buttons: button);
+    final up = PointerUpEvent(pointer: 999, position: position, kind: PointerDeviceKind.mouse, buttons: button);
+    GestureBinding.instance.handlePointerEvent(down);
+    GestureBinding.instance.handlePointerEvent(up);
   }
 
   EditableTextState? _findEditableTextState(GlobalKey key) {
