@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 /// Configuration for which mouse click triggers the context menu.
-enum ShowContextMenu { leftClick, rightClick, both, none }
+enum ShowContextMenu { rightClick, both, none }
 
 /// A widget that handles the platform-specific gesture logic for spell checking
 /// on desktop, specifically mapping clicks to "Move Cursor" + "Open Menu".
@@ -47,7 +47,7 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
         _handleRightClick(event);
       }
     } else if (isLeftClick) {
-      if (widget.showContextMenu == ShowContextMenu.leftClick || widget.showContextMenu == ShowContextMenu.both) {
+      if (widget.showContextMenu == ShowContextMenu.both) {
         _handleLeftClick(event);
       }
     }

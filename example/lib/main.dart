@@ -77,7 +77,7 @@ class _MyAppState extends State<MyApp> {
                       SizedBox(height: 20),
                       HunspellGestureDetector(
                         fieldKey: _textFieldKey,
-                        showContextMenu: ShowContextMenu.leftClick,
+                        showContextMenu: ShowContextMenu.both,
                         child: TextField(
                           key: _textFieldKey,
                           controller: _controller,
