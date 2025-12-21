@@ -76,6 +76,7 @@ class _MyAppState extends State<MyApp> {
                       Text('Type something (try "speling"):'),
                       SizedBox(height: 20),
                       HunspellGestureDetector(
+                        showContextMenu: ShowContextMenu.leftClick,
                         fieldKey: _textFieldKey,
                         child: TextField(
                           key: _textFieldKey,
