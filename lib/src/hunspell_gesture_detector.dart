@@ -29,6 +29,9 @@ class HunspellGestureDetector extends StatefulWidget {
 }
 
 class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
+  int _nextPointerId = 1000;
+  bool _isRightClickDown = false;
+
   @override
   Widget build(BuildContext context) {
     return Listener(onPointerDown: _handlePointerDown, onPointerUp: _handlePointerUp, child: widget.child);
@@ -36,17 +39,18 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
 
   void _handlePointerDown(PointerDownEvent event) {
     // Ignore our own synthesized events
-    if (event.pointer == 999) return;
+    if (event.pointer >= 1000) return;
     if (event.kind != PointerDeviceKind.mouse) return;
 
     final isRightClick = event.buttons == kSecondaryMouseButton;
     final isLeftClick = event.buttons == kPrimaryButton;
 
     if (isRightClick) {
-      if (widget.showContextMenu == ShowContextMenu.rightClick || widget.showContextMenu == ShowContextMenu.both) {
-        _handleRightClick(event);
-      }
+      // Track that we started a right click, but don't act yet.
+      // We will act on PointerUp to ensure native dismissals (from PointerDown) are finished.
+      _isRightClickDown = true;
     } else if (isLeftClick) {
+      _isRightClickDown = false; // Reset if they clicked left
       if (widget.showContextMenu == ShowContextMenu.both) {
         _handleLeftClick(event);
       }
@@ -54,8 +58,15 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
   }
 
   void _handlePointerUp(PointerUpEvent event) {
-    if (event.pointer == 999) return;
+    if (event.pointer >= 1000) return;
     if (event.kind != PointerDeviceKind.mouse) return;
+
+    if (_isRightClickDown) {
+      _isRightClickDown = false;
+      if (widget.showContextMenu == ShowContextMenu.rightClick || widget.showContextMenu == ShowContextMenu.both) {
+        _handleRightClick(event);
+      }
+    }
   }
 
   void _handleLeftClick(PointerDownEvent event) {
@@ -65,13 +76,20 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
     });
   }
 
-  void _handleRightClick(PointerDownEvent event) {
-    // 1. Synthesize Left Click to move cursor (Native Flutter placement)
-    _synthesizeTap(event.position, kPrimaryButton);
-
-    // 2. Schedule the Context Menu
+  void _handleRightClick(PointerEvent event) {
+    // Defer the synthetic click to the next event loop to avoid conflict with the current PointerDown/Up dispatch
     Future.delayed(Duration.zero, () {
-      _showToolbar(checkForMisspelling: false);
+      if (!mounted) return;
+      // 1. Synthesize Left Click to move cursor (Native Flutter placement)
+      _synthesizeTap(event.position, kPrimaryButton);
+
+      // 2. Schedule the Context Menu
+      // We increase the delay slightly to ensure the synthetic up event has processed
+      // and any resulting native tap gestures (cancel/tap) have resolved.
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (!mounted) return;
+        _showToolbar(checkForMisspelling: false);
+      });
     });
   }
 
@@ -111,8 +129,15 @@ class _HunspellGestureDetectorState extends State<HunspellGestureDetector> {
   }
 
   void _synthesizeTap(Offset position, int button) {
-    final down = PointerDownEvent(pointer: 999, position: position, kind: PointerDeviceKind.mouse, buttons: button);
-    final up = PointerUpEvent(pointer: 999, position: position, kind: PointerDeviceKind.mouse, buttons: button);
+    // Use a unique pointer ID for every synthetic TAP to avoid confusing the gesture arena
+    final pointerId = _nextPointerId++;
+    final down = PointerDownEvent(
+      pointer: pointerId,
+      position: position,
+      kind: PointerDeviceKind.mouse,
+      buttons: button,
+    );
+    final up = PointerUpEvent(pointer: pointerId, position: position, kind: PointerDeviceKind.mouse, buttons: button);
     GestureBinding.instance.handlePointerEvent(down);
     GestureBinding.instance.handlePointerEvent(up);
   }
