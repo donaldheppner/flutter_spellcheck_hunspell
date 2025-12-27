@@ -29,7 +29,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initHunspell() async {
-    // Copy assets to extensive storage because Hunspell needs file paths
+    // Copy assets because Hunspell needs file paths
     final docsDir = await getApplicationSupportDirectory();
     final affDetail = await rootBundle.load('assets/en_US.aff');
     final dicDetail = await rootBundle.load('assets/en_US.dic');
@@ -117,6 +117,6 @@ class _MyAppState extends State<MyApp> {
 class HunspellTextEditingController extends TextEditingController {
   /// Force listeners to be notified, triggering a spell check re-run.
   void refresh() {
-    notifyListeners();
+    //notifyListeners();
   }
 }

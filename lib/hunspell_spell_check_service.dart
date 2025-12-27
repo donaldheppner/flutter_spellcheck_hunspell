@@ -28,7 +28,7 @@ final DynamicLibrary _dylib = () {
 }();
 
 /// Commands sent to the isolate
-enum _HunspellCommand { init, check, dispose, add }
+enum _HunspellCommand { init, check, dispose, add, setIgnoredPatterns }
 
 /// Request data sent to the isolate
 class _HunspellRequest {
@@ -67,7 +67,18 @@ class HunspellSpellCheckService extends SpellCheckService {
   bool _isProcessing = false;
   _QueuedRequest? _nextPendingRequest;
 
+  List<String> _ignoredPatterns = [r"\w+://\S+"];
+
   HunspellSpellCheckService();
+
+  /// Sets the list of regex patterns to ignore during spell checking.
+  /// Synchronization with the background isolate is handled automatically.
+  set ignoredPatterns(List<String> value) {
+    _ignoredPatterns = value;
+    if (_isReady) {
+      _sendRequest(_HunspellCommand.setIgnoredPatterns, value);
+    }
+  }
 
   Future<void> init(String affPath, String dicPath) async {
     _isolate = await Isolate.spawn(_hunspellIsolateEntry, _receivePort.sendPort);
@@ -86,6 +97,10 @@ class HunspellSpellCheckService extends SpellCheckService {
 
     // Initialize the Hunspell instance inside the isolate
     await _sendRequest(_HunspellCommand.init, [affPath, dicPath]);
+
+    // Sync initial ignored patterns
+    await _sendRequest(_HunspellCommand.setIgnoredPatterns, _ignoredPatterns);
+
     _isReady = true;
   }
 
@@ -246,6 +261,7 @@ void _hunspellIsolateEntry(SendPort sendPort) {
 
   final bindings = HunspellBindings(_dylib);
   Pointer<HunspellHandle>? hunspell;
+  List<String> ignoredPatterns = [];
 
   receivePort.listen((message) {
     if (message is _HunspellRequest) {
@@ -264,13 +280,18 @@ void _hunspellIsolateEntry(SendPort sendPort) {
             sendPort.send(_HunspellResponse(message.id, true));
             break;
 
+          case _HunspellCommand.setIgnoredPatterns:
+            ignoredPatterns = (message.args as List).cast<String>();
+            sendPort.send(_HunspellResponse(message.id, true));
+            break;
+
           case _HunspellCommand.check:
             if (hunspell == null) {
               sendPort.send(_HunspellResponse(message.id, []));
               break;
             }
             final text = message.args![0] as String;
-            final results = _checkText(bindings, hunspell!, text);
+            final results = _checkText(bindings, hunspell!, text, ignoredPatterns);
             sendPort.send(_HunspellResponse(message.id, results));
             break;
 
@@ -303,8 +324,28 @@ void _hunspellIsolateEntry(SendPort sendPort) {
 }
 
 /// Helper to perform the actual spell check logic (Pure Dart + FFI, no Flutter dependencies)
-List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<HunspellHandle> hunspell, String text) {
+List<Map<String, dynamic>> _checkText(
+  HunspellBindings bindings,
+  Pointer<HunspellHandle> hunspell,
+  String text,
+  List<String> ignoredPatterns,
+) {
   final List<Map<String, dynamic>> results = [];
+
+  // 1. Identify masked ranges
+  final List<TextRange> maskedRanges = [];
+  for (final pattern in ignoredPatterns) {
+    try {
+      final regExp = RegExp(pattern);
+      final matches = regExp.allMatches(text);
+      for (final match in matches) {
+        maskedRanges.add(TextRange(start: match.start, end: match.end));
+      }
+    } catch (e) {
+      // Ignore invalid regex patterns to prevent crashes
+    }
+  }
+
   // Regex to find words: Unicode letters, marks, numbers, underscores, and apostrophes.
   // This effectively skips punctuation and whitespace.
   final RegExp wordRegex = RegExp(r"[\p{L}\p{M}\p{N}_']+", unicode: true);
@@ -314,6 +355,16 @@ List<Map<String, dynamic>> _checkText(HunspellBindings bindings, Pointer<Hunspel
     final word = match.group(0)!;
     final wordStart = match.start;
     final wordEnd = match.end;
+
+    // 2. Optimization check: Skip if word falls inside any masked range
+    bool isMasked = false;
+    for (final range in maskedRanges) {
+      if (wordStart < range.end && wordEnd > range.start) {
+        isMasked = true;
+        break;
+      }
+    }
+    if (isMasked) continue;
 
     final wordPtr = word.toNativeUtf8();
     final result = bindings.FlutterHunspell_spell(hunspell, wordPtr.cast());
